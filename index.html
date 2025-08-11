@@ -501,7 +501,7 @@
       const h = String(now.getHours()).padStart(2, '0');
       const m = String(now.getMinutes()).padStart(2, '0');
       const s = String(now.getSeconds()).padStart(2, '0');
-      document.getElementById("clock").textContent = `⏰ 現在時間：${h}:${m}:${s}`;
+      document.getElementById("clock").textContent = `⏰ ：${h}:${m}:${s}`;
       const delay = 1000 - now.getMilliseconds();
       setTimeout(updateClock, delay);
     }
