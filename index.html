@@ -1524,6 +1524,9 @@
           if (!items.length) return;
           if (showHeaders) lines.push(`-- ${sec.name} --`);
           items.forEach(i => lines.push(i.line));
+          
+          // 🔽 新增：若不是最後一個分區，分區間空一行
+          if (idx < sections.length - 1) lines.push('');
         });
 
         // 4) 寫回輸出框
