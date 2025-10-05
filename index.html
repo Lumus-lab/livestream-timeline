@@ -1,23 +1,26 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
+  <meta charset="UTF-8">
   <!-- 基本 SEO -->
   <meta charset="UTF-8">
-  <meta name="description" content="🎙️ 直播時間軸小幫手 — 快速標記 YouTube 直播歌曲時間戳，一鍵產生章節時間軸！">
+  <meta name="description" content="🎙️ 直播時間軸小幫手 — 快速標記 YouTube 直播歌曲時間點，一鍵產生時間軸！">
+
   <!-- Open Graph (Facebook / LINE / Discord / Telegram 都會用) -->
   <meta property="og:title" content="直播時間軸小幫手">
-  <meta property="og:description" content="快速標記 YouTube 直播歌曲時間戳，一鍵產生章節時間軸！支援多工作表、歌曲建議、跨日計算。">
+  <meta property="og:description" content="快速標記 YouTube 直播歌曲時間點，一鍵產生時間軸！支援歌曲建議、跨日計算。">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://lumus-lab.github.io/livestream-timeline/">
-  <meta property="og:image" content="https://lumus-lab.github.io/livestream-timeline/assets/preview.png">
+  <meta property="og:url" content="https://ol-duck.github.io/livestream/">
+  <meta property="og:image" content="https://ol-duck.github.io/livestream/assets/preview.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
+
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="直播時間軸小幫手">
-  <meta name="twitter:description" content="快速標記 YouTube 直播歌曲時間戳，一鍵產生章節時間軸！支援多工作表、歌曲建議、跨日計算。">
-  <meta name="twitter:image" content="https://lumus-lab.github.io/livestream-timeline/assets/preview.png">
+  <meta name="twitter:description" content="快速標記 YouTube 直播歌曲時間點，一鍵產生時間軸！支援歌曲建議、跨日計算。">
+  <meta name="twitter:image" content="https://ol-duck.github.io/livestream/assets/preview.png">
   <title>直播時間軸小幫手</title>
   <style>
     body {
@@ -44,21 +47,10 @@
       font-size: 16px;
     }
 
-    .floating-clock {
-      position: fixed;
-      top: 35px;
-      right: 1em;
-      background-color: #eee;
-      color: #111;
-      padding: 0.5em 1em;
-      border-radius: 8px;
-      font-size: 18px;
+    .clock {
       font-weight: bold;
-      z-index: 9999;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
-      border: 1px solid #bbb; /* ← 明確邊框 */
-      font-family: monospace; /* ✅ 等寬字體 */
-      text-align: center; /* ✅ 文字置中 */
+      font-size: 1.2em;
+      margin-bottom: 1em;
     }
 
     button {
@@ -171,6 +163,167 @@
       display: none;
     }
 
+    /* ========== 基礎（亮色預設，集中管理顏色變數） ========== */
+    :root{
+      --bg: #ffffff;
+      --text: #222222;
+      --muted: #666666;
+      --card: #f9f9f9;
+      --input: #ffffff;
+      --border: #d9d9d9;
+    }
+
+    /* 全域文字/背景（不動你的版面） */
+    body { background: var(--bg); color: var(--text); }
+
+    /* 工具列與容器 */
+    .sections-toolbar { display: block; }
+    .sections-container { margin: 10px 0; }
+    .toolbar-row { display:flex; gap:8px; flex-wrap:wrap; margin: 6px 0 10px; }
+
+    /* 共用按鈕（只給分區/工具列使用，不動你全站的 button） */
+    .btn { background: var(--input); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; }
+    .btn:hover { filter: brightness(0.98); }
+
+    /* 分區卡（左側彩色條仍由 inline style 決定，不改） */
+    .section-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 10px 0;
+    }
+
+    /* 分區標題輸入、類型下拉 */
+    .section-card .section-title-input,
+    .section-card .section-type-select {
+      background: var(--input);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* 欄位輸入 */
+    .section-card .song-row input {
+      background: var(--input);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* 分區內動作按鈕（權重高於 .btn 與全域 button） */
+    .section-card button {
+      background: var(--input);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* 建議清單 —— 限定在分區內，避免影響你站上其他 suggest 清單 */
+    .section-card .suggest-list {
+      background: var(--input);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* 輸出與調整文字區（若你的 HTML 有 result 區塊，幫它加個容器 class="result-block" 以精準套用） */
+    .result-block #output,
+    #adjustArea {
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    /* 拖曳樣式提示 */
+    .drag-ghost { opacity: 0.6; }
+    .section-card .song-row { background: transparent; transition: background 0.15s; }
+    .section-card .song-row.sortable-chosen { background: rgba(0,0,0,0.04); }
+    .drag-handle-sec, .drag-handle-row { color: var(--muted); }
+
+    /* 深色模式 */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background-color: #111;
+        color: #eee;
+      }
+      .intro, .time-block, .result-block, .adjust-block, textarea.readonly-output {
+        background-color: #222;
+        color: #ddd;
+        border: 1px solid #444;
+      }
+      input, textarea {
+        background-color: #333;
+        color: #fff;
+        border: 1px solid #555;
+      }
+      button {
+        background-color: #444;
+        color: #fff;
+        border: 1px solid #666;
+      }
+      .ps-note {
+        color: #aaa;
+      }
+      .modal {
+        background: #fff;
+        color: #555;
+      }
+      .suggest-list {
+        background: #333;
+        color: #fff;
+        border: 1px solid #555;
+      }
+      .suggest-list li:hover {
+        background-color: #555;
+      }
+
+      :root{
+        --bg: #121212;
+        --text: #e0e0e0;
+        --muted: #aaaaaa;
+        --card: #1e1e1e;
+        --input: #2c2c2c;
+        --border: #444444;
+      }
+
+      body { background: var(--bg); color: var(--text); }
+
+      .btn,
+      .section-card button {
+        background: var(--input);
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+      .btn:hover,
+      .section-card button:hover { background: #333333; }
+
+      .section-card {
+        background: var(--card);
+        border-color: var(--border);
+        color: var(--text);
+      }
+
+      .section-card .section-title-input,
+      .section-card .section-type-select,
+      .section-card .song-row input {
+        background: var(--input);
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+
+      .section-card .suggest-list {
+        background: var(--input);
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+
+      .result-block #output,
+      #adjustArea {
+        background: var(--card);
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+
+      .drag-handle-sec, .drag-handle-row { color: var(--muted); }
+    }
+
     .modal {
       display: none;
       position: fixed;
@@ -220,182 +373,9 @@
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
-
-    .sheet-tab-btn {
-      display: block;
-      margin-bottom: 0.5em;
-      padding: 0.6em 1em;
-      color: white;
-      font-weight: bold;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      width: 140px;
-      text-align: left;
-    }
-
-    .sheet-tab-btn.active {
-      outline: 3px solid black;
-      box-shadow: 0 0 0 2px white;
-    }
-
-    .sheet-tab-btn-wrapper {
-      width: 140px;
-    }
-
-    #sheetTabsContainer {
-      position: fixed;
-      top: 1em;
-      left: 1em;
-      z-index: 999;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5em;
-    }
-
-    .sheet-tab-menu {
-      position: absolute;
-      right: 0.5em;
-      top: 0.3em;
-      font-weight: bold;
-      cursor: pointer;
-      z-index: 1001;
-      user-select: none;
-    }
-
-    /* 彈出的選單 */
-    .sheet-menu-popup {
-      position: absolute;
-      top: 2em;
-      right: 0;
-      background: white;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-      font-size: 14px;
-      z-index: 1002;
-      overflow: hidden;
-    }
-
-    .sheet-menu-popup div {
-      padding: 0.5em 1em;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    .sheet-menu-popup div:hover {
-      background: #eee;
-    }
-
-    /* 深色模式 */
-    @media (prefers-color-scheme: dark) {
-      body {
-        background-color: #111;
-        color: #eee;
-      }
-      .intro, .time-block, .result-block, .adjust-block, textarea.readonly-output {
-        background-color: #222;
-        color: #ddd;
-        border: 1px solid #444;
-      }
-      input, textarea {
-        background-color: #333;
-        color: #fff;
-        border: 1px solid #555;
-      }
-      button {
-        background-color: #444;
-        color: #fff;
-        border: 1px solid #666;
-      }
-      .ps-note {
-        color: #aaa;
-      }
-      .modal {
-        background: #fff;
-        color: #555;
-      }
-      .suggest-list {
-        background: #333;
-        color: #fff;
-        border: 1px solid #555;
-      }
-      .suggest-list li:hover {
-        background-color: #555;
-      }
-      .sheet-menu-popup {
-        background: #333;
-        border-color: #555;
-        color: #eee;
-      }
-      .sheet-menu-popup div:hover {
-        background: #444;
-      }
-      .sheet-tab-btn.active {
-        outline: 3px solid white;
-        box-shadow: 0 0 0 2px black;
-      }
-      .floating-clock {
-        background-color: #333;
-        color: white;
-        border: 1px solid #666;
-      }
-
-      /* 分區卡 */
-      .section-card {
-        background: #1e1e1e;
-        border-color: #2c2c2c;
-        color: #e0e0e0;
-      }
-    
-      /* 分區標題輸入框、下拉選單 */
-      .section-card .section-title-input,
-      .section-card .section-type-select {
-        background: #2c2c2c;
-        border: 1px solid #444;
-        color: #e0e0e0;
-      }
-    
-      /* 分區內欄位 */
-      .section-card .song-row input {
-        background: #2c2c2c;
-        border: 1px solid #444;
-        color: #e0e0e0;
-      }
-    
-      /* 按鈕（保留彩色按鈕的色彩） */
-      .section-card button {
-        background: #2c2c2c;
-        border: 1px solid #444;
-        color: #e0e0e0;
-      }
-      .section-card button:hover {
-        background: #333;
-      }
-    
-      /* 拖曳手把 */
-      .drag-handle-sec,
-      .drag-handle-row {
-        color: #aaa;
-      }
-    
-      /* 輸出與調整區 */
-      #output,
-      #adjustArea {
-        background: #1e1e1e;
-        border: 1px solid #444;
-        color: #e0e0e0;
-      }
-    }
   </style>
 </head>
 <body>
-  <!-- 📌 左上角分頁與新增按鈕區塊 -->
-  <div id="sheetTabsContainer">
-    <button onclick="createNewSheet()" class="sheet-tab-add-btn">✚ 新增工作表</button>
-    <!-- 所有工作表按鈕會由 JS 動態插入在這裡 -->
-  </div>
-
   <div class="intro">
     <h1>🎙️ 直播時間軸小幫手</h1>
     <p>這是一個用來快速標記 YouTube 直播歌曲時間戳的小工具。<br>
@@ -407,30 +387,26 @@
       <div class="intro-column">
         <h2>✨ 功能特色</h2>
         <ol>
-          <li>支援「多分頁工作表」管理，不同歌單互不干擾</li>
-          <li>分頁可命名、切換、刪除，顏色自動分配避免混淆</li>
-          <li>所有資料會自動儲存在瀏覽器（localStorage），不怕刷新</li>
-          <li>自動還原上次填寫內容，切換分頁即切換對應資料</li>
-          <li>即時顯示本地時間，可一鍵填入目前時間</li>
-          <li>歌名 + 時間分開輸入，可自由新增或刪除欄位</li>
-          <li>歌曲建議功能，可從連接的自建歌曲資料庫中搜尋已建檔歌曲</li>
-          <li>自動跨日計算（如 23:00 → 01:00）處理無誤</li>
-          <li>產生章節時間軸時，會根據時間自動排序輸出</li>
-          <li>「校正區」可手動編輯章節，輸出格式可直接貼到 YouTube</li>
-          <li>提供「🔄 回復成預設」按鈕可快速重置所有內容</li>
+          <li>即時顯示本地時間</li>
+          <li>一鍵填入當下時間</li>
+          <li>歌名 + 時間分開輸入，支援動態新增或刪除欄位</li>
+          <li>可開啟「歌曲建議」，從歌曲資料庫中搜尋並模糊匹配</li>
+          <li>自動跨日計算（如 23:00 → 01:00）</li>
+          <li>自動儲存輸入內容（僅在本地瀏覽器暫存），即使意外刷新頁面也能恢復</li>
+          <li>輸出時間戳格式，可直接用於影片章節標記，並提供「校正區」手動調整</li>
+          <li>一鍵「手動清空」可清除全部輸入與儲存的資料</li>
         </ol>
       </div>
       <div class="intro-column">
         <h2>📖 使用方式教學</h2>
         <ol>
-          <li>可新增多個分頁，每個分頁對應一份獨立歌單</li>
-          <li>每頁可設定開台時間、關台時間、直播時長、歌曲清單</li>
-          <li>歌曲清單中填入「歌名 + 時間」，可按下「現在時間」快速填入</li>
-          <li>如要刪除歌單列，可點選「刪除」按鈕，會跳出確認提醒</li>
-          <li>可選擇啟用「歌曲建議」功能，從歌曲資料庫自動搜尋</li>
-          <li>按下「✅ 產生直播時間軸」後，系統會自動依照時間排序輸出結果</li>
-          <li>如有需要微調時間或格式，可到「校正區」手動修改</li>
-          <li>點擊「🔄 回復成預設」可清除所有工作表與資料，重設為空白狀態</li>
+          <li>輸入「開台時間」，或使用「結束時間 + 時長」自動推算開始時間</li>
+          <li>在每首歌的欄位輸入「歌名」與「絕對時間」，可用「現在時間」按鈕快速填寫</li>
+          <li>如需刪除歌單列，點選「刪除」按鈕，若欄位有內容會跳出提醒視窗</li>
+          <li>若需快速選歌，可勾選「啟用歌曲建議」，並輸入關鍵字進行模糊搜尋</li>
+          <li>按下「產生直播時間軸」後，結果會顯示於下方</li>
+          <li>如有細微誤差，可直接在「校正區」貼上結果並手動修正</li>
+          <li>如想重置所有輸入，可點擊「手動清空」按鈕</li>
         </ol>
       </div>
     </div>
@@ -438,10 +414,10 @@
       🔐 本工具所有輸入的資料均儲存在「您自己的瀏覽器」中，透過 localStorage 技術自動保存，不需要手動備份<br>
       💡 本工具為純前端運作，您填寫的任何內容「都不會被上傳至伺服器」<br>
       所有資料皆僅存在於您的裝置中，開發者無法存取、查看或備份您所輸入的資料。請放心使用
-    </div>    
+    </div>
   </div>
 
-  <div class="floating-clock" id="clock"></div>
+  <div class="clock" id="clock"></div>
 
   <div class="time-block">
     <div class="time-row">
@@ -475,21 +451,22 @@
     <div id="songList"></div>
     <button onclick="addSongRow()">🈳 新增歌曲欄位</button>
 
-    <!-- 🔽 分區容器（取代舊的 #songList 與單一新增歌欄位按鈕） -->
-    <div id="sectionsContainer"></div>
+    <!-- 🔽 分區工具區（取代舊的 #songList 與單一新增歌欄位按鈕） -->
+    <div class="sections-toolbar">
+      <div id="sectionsContainer" class="sections-container"></div>
 
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      <button onclick="addSection()">📁 新增分區</button>
-      <button onclick="addSection('🎵 唱歌','song')">🎵 快速新增「唱歌」分區</button>
-      <button onclick="addSection('💬 聊天','chat')">💬 快速新增「聊天」分區</button>
-      <button onclick="addSection('✨ 精華','highlight')">✨ 快速新增「有趣片段」分區</button>
+      <div class="toolbar-row">
+        <button class="btn add-section" onclick="addSection()">📁 新增分區</button>
+        <button class="btn" onclick="addSection('🎵 唱歌','song')">🎵 快速新增「唱歌」分區</button>
+        <button class="btn" onclick="addSection('✨ 有趣片段','highlight')">✨ 快速新增「有趣片段」分區</button>
+        <button class="btn" onclick="addSection('💬 話題','chat')">💬 快速新增「話題」分區</button>
+      </div>
+
+      <label class="opt-show-headers" style="display:inline-flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="showSectionHeaders" checked>
+        在輸出中顯示分區標題
+      </label>
     </div>
-
-    <!-- 產出時是否顯示分區標題 -->
-    <label style="margin-top:8px; display:inline-flex; align-items:center; gap:6px;">
-      <input type="checkbox" id="showSectionHeaders" checked>
-      在輸出中顯示分區標題
-    </label>
 
     <button onclick="generateTimeline()">✅ 產生直播時間軸</button>
   </div>
@@ -505,7 +482,7 @@
   </div>
 
   <div id="clearFixedContainer">
-    <button onclick="clearAllData()">🔄 回復成預設</button>
+    <button onclick="clearAllData()">🚮 手動清空</button>
   </div>
 
   <div class="overlay" id="overlay"></div>
@@ -519,28 +496,6 @@
   </div>
 
   <script>
-    const colorOptions = [
-      "#f44336", "#e91e63", "#9c27b0", "#3f51b5", "#03a9f4",
-      "#009688", "#4caf50", "#ff9800", "#795548", "#607d8b"
-    ];
-
-    let timelineSheets = {
-      currentSheet: "sheet1",
-      sheets: {
-        sheet1: {
-          name: "工作表 1",
-          color: "#f44336",
-          data: {
-            startTime: "",
-            endTime: "",
-            duration: "",
-            adjustArea: "",
-            songs: []
-          }
-        }
-      }
-    };
-
     sessionStorage.removeItem('noRemind');
     let pendingDeleteRow = null;
     let songData = []; 
@@ -579,7 +534,7 @@
       const h = String(now.getHours()).padStart(2, '0');
       const m = String(now.getMinutes()).padStart(2, '0');
       const s = String(now.getSeconds()).padStart(2, '0');
-      document.getElementById("clock").textContent = `⏰ ：${h}:${m}:${s}`;
+      document.getElementById("clock").textContent = `⏰ 現在時間：${h}:${m}:${s}`;
       const delay = 1000 - now.getMilliseconds();
       setTimeout(updateClock, delay);
     }
@@ -647,17 +602,15 @@
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
 
-    // ✅ 將目前畫面資料即時儲存到 timelineSheets 的當前分頁
+    // 儲存資料到 localStorage
     function saveAllData() {
-      const currentId = timelineSheets.currentSheet;
-      const data = timelineSheets.sheets[currentId].data;
-
-      data.startTime = document.getElementById('startTime').value;
-      data.endTime = document.getElementById('endTime').value;
-      data.duration = document.getElementById('duration').value;
-      data.adjustArea = document.getElementById('adjustArea').value;
-      data.songs = [];
-
+      const data = {
+        startTime: document.getElementById('startTime').value,
+        endTime: document.getElementById('endTime').value,
+        duration: document.getElementById('duration').value,
+        adjustArea: document.getElementById('adjustArea').value,
+        songs: []
+      };
       document.querySelectorAll('.song-row').forEach(row => {
         const inputs = row.querySelectorAll('input');
         data.songs.push({
@@ -665,191 +618,30 @@
           time: inputs[1].value
         });
       });
-
-      localStorage.setItem('timelineSheets', JSON.stringify(timelineSheets));
+      localStorage.setItem('timelineData', JSON.stringify(data));
     }
 
-    // ✅ 將 timelineSheets 的當前分頁資料還原至畫面欄位
-    function restoreSheetData() {
-      const currentId = timelineSheets.currentSheet;
-      const data = timelineSheets.sheets[currentId].data;
-
+    // 從 localStorage 恢復資料
+    function restoreAllData() {
+      const raw = localStorage.getItem('timelineData');
+      if (!raw) return;
+      const data = JSON.parse(raw);
       document.getElementById('startTime').value = data.startTime || '';
       document.getElementById('endTime').value = data.endTime || '';
       document.getElementById('duration').value = data.duration || '';
       document.getElementById('adjustArea').value = data.adjustArea || '';
       autoResizeTextarea(document.getElementById('adjustArea'));
-
       const container = document.getElementById('songList');
       container.innerHTML = '';
-
-      // ✅ 若該分頁完全沒歌曲 → 預設產出 5 個空白欄位
-      const songs = (data.songs && data.songs.length > 0) ? data.songs : Array(5).fill({ name: '', time: '' });
-      songs.forEach(song => addSongRow(song.name, song.time));
+      data.songs.forEach(song => addSongRow(song.name, song.time));
     }
-
 
     // 清空資料
     function clearAllData() {
-      if (confirm('確定要清空所有工作表，回復為預設狀態？')) {
-        // 移除 timelineSheets 資料
-        localStorage.removeItem('timelineSheets');
-
-        // 如果還殘留舊資料也順便刪掉
+      if (confirm('確定要清空所有輸入嗎？')) {
         localStorage.removeItem('timelineData');
-
-        // 重新載入頁面，會自動建立預設工作表
         location.reload();
       }
-    }
-
-    function renderSheetTabs() {
-      const container = document.getElementById("sheetTabsContainer");
-
-      // 🔁 只刪掉舊的工作表按鈕（.sheet-tab-btn），保留新增按鈕
-      const oldButtons = container.querySelectorAll('.sheet-tab-btn-wrapper');
-      oldButtons.forEach(btn => btn.remove());
-
-      Object.entries(timelineSheets.sheets).forEach(([sheetId, sheet]) => {
-        // 包裝整個分頁按鈕 + ⋯ 的 wrapper
-        const wrapper = document.createElement("div");
-        wrapper.className = "sheet-tab-btn-wrapper";
-        wrapper.style.position = "relative";
-        wrapper.style.display = "flex";
-        wrapper.style.alignItems = "center";
-
-        // 🔘 分頁按鈕
-        const btn = document.createElement("button");
-        btn.className = "sheet-tab-btn";
-        if (sheetId === timelineSheets.currentSheet) {
-          btn.classList.add("active");
-        }
-        btn.textContent = sheet.name;
-        btn.style.backgroundColor = sheet.color;
-        btn.style.flex = "1";
-        btn.onclick = () => {
-          saveAllData();
-          timelineSheets.currentSheet = sheetId;
-          localStorage.setItem("timelineSheets", JSON.stringify(timelineSheets));
-          renderSheetTabs();
-          restoreSheetData();
-        };
-
-        // ⋯ 按鈕
-        const moreBtn = document.createElement("div");
-        moreBtn.textContent = "⋯";
-        moreBtn.className = "sheet-tab-menu";
-        moreBtn.onclick = (e) => {
-          e.stopPropagation();
-          showSheetMenu(sheetId, moreBtn);
-        };
-
-        wrapper.appendChild(btn);
-        wrapper.appendChild(moreBtn);
-        container.appendChild(wrapper);
-      });
-    }
-
-    function createNewSheet() {
-      // 找出未使用的顏色
-      const usedColors = Object.values(timelineSheets.sheets).map(sheet => sheet.color);
-      let availableColors = colorOptions.filter(color => !usedColors.includes(color));
-      if (availableColors.length === 0) {
-        availableColors = [...colorOptions]; // 全部用過就重置
-      }
-
-      // 隨機挑一個顏色
-      const color = availableColors[Math.floor(Math.random() * availableColors.length)];
-
-      // 自動命名：「工作表 n」
-      const existingNames = Object.values(timelineSheets.sheets).map(s => s.name);
-      let index = 1;
-      let newName;
-      do {
-        newName = `工作表 ${index++}`;
-      } while (existingNames.includes(newName));
-
-      // 自動產生新 ID（如 sheet3、sheet4）
-      let idCounter = 1;
-      let newId;
-      do {
-        newId = `sheet${++idCounter}`;
-      } while (timelineSheets.sheets[newId]);
-
-      // 新增資料
-      timelineSheets.sheets[newId] = {
-        name: newName,
-        color: color,
-        data: {
-          startTime: "",
-          endTime: "",
-          duration: "",
-          adjustArea: "",
-          songs: []
-        }
-      };
-
-      timelineSheets.currentSheet = newId;
-      localStorage.setItem("timelineSheets", JSON.stringify(timelineSheets));
-      renderSheetTabs();
-      restoreSheetData();
-    }
-
-    function showSheetMenu(sheetId, anchorElement) {
-      // 先清除舊的 popup（若存在）
-      document.querySelectorAll(".sheet-menu-popup").forEach(el => el.remove());
-
-      const menu = document.createElement("div");
-      menu.className = "sheet-menu-popup";
-
-      // ✏️ 重新命名
-      const renameItem = document.createElement("div");
-      renameItem.textContent = "✏️ 重新命名";
-      renameItem.onclick = () => {
-        const newName = prompt("請輸入新的工作表名稱：", timelineSheets.sheets[sheetId].name);
-        if (newName && newName.trim()) {
-          timelineSheets.sheets[sheetId].name = newName.trim();
-          localStorage.setItem("timelineSheets", JSON.stringify(timelineSheets));
-          renderSheetTabs();
-        }
-        menu.remove();
-      };
-      menu.appendChild(renameItem);
-
-      // 🗑️ 刪除分頁
-      const deleteItem = document.createElement("div");
-      deleteItem.textContent = "🗑️ 刪除工作表";
-      deleteItem.onclick = () => {
-        const sheetCount = Object.keys(timelineSheets.sheets).length;
-        if (sheetCount <= 1) {
-          alert("至少需要保留一個工作表！");
-          return;
-        }
-
-        if (confirm(`確定要刪除「${timelineSheets.sheets[sheetId].name}」嗎？\n這個工作表的所有資料將一併刪除。`)) {
-          delete timelineSheets.sheets[sheetId];
-
-          // 若刪除的是當前分頁，切換到其他任一個
-          if (timelineSheets.currentSheet === sheetId) {
-            timelineSheets.currentSheet = Object.keys(timelineSheets.sheets)[0];
-          }
-
-          localStorage.setItem("timelineSheets", JSON.stringify(timelineSheets));
-          renderSheetTabs();
-          restoreSheetData();
-        }
-
-        menu.remove();
-      };
-      menu.appendChild(deleteItem);
-
-      // 插入選單
-      anchorElement.parentElement.appendChild(menu);
-
-      // 點其他地方就關閉選單
-      setTimeout(() => {
-        window.addEventListener("click", () => menu.remove(), { once: true });
-      }, 0);
     }
 
     function addSongRow(name = '', time = '') {
@@ -886,6 +678,8 @@
       container.appendChild(row);
     }
 
+    for (let i = 0; i < 5; i++) addSongRow();
+    restoreAllData(); // 讀取 localStorage
     loadSongs(); // 讀取 Google Sheets 資料
 
     // 綁定 startTime / endTime / duration
@@ -992,343 +786,176 @@
 
       list.classList.remove('hidden');
     }
+  </script>
+  <!-- SortableJS（拖曳套件） -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
 
-    initSheets(); // ← 頁面載入時執行
+  <script>
+  /* ========== 覆寫：renderSectionCard（加 .btn 與分區拖曳手把） ========== */
+  if (typeof renderSectionCard === 'function') {
+    const __orig_renderSectionCard = renderSectionCard;
+  }
+  function renderSectionCard(sec) {
+    const wrap = document.createElement('div');
+    wrap.className = 'section-card';
+    wrap.dataset.id = sec.id;
+    wrap.dataset.type = sec.type || 'custom';
+    wrap.dataset.color = sec.color || '#3f51b5';
+    wrap.style.border = '1px solid #ccc';
+    wrap.style.borderLeft = `10px solid ${wrap.dataset.color}`;
+    wrap.style.borderRadius = '8px';
+    wrap.style.padding = '12px';
+    wrap.style.margin = '10px 0';
+    wrap.style.background = 'var(--card)';
 
-    function initSheets() {
-      const saved = localStorage.getItem("timelineSheets");
-      if (saved) {
-        timelineSheets = JSON.parse(saved);
-      } else {
-        localStorage.setItem("timelineSheets", JSON.stringify(timelineSheets));
+    wrap.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+        <span class="drag-handle-sec" title="拖曳分區" style="cursor:grab; user-select:none; font-size:18px; line-height:1;">≡</span>
+        <input class="section-title-input" value="${sec.name || '未命名分區'}" 
+              style="font-weight:700; font-size:16px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; min-width:220px;">
+        <select class="section-type-select" style="padding:6px 8px; border:1px solid var(--border); border-radius:6px;">
+          <option value="song"${sec.type==='song'?' selected':''}>🎵 唱歌</option>
+          <option value="chat"${sec.type==='chat'?' selected':''}>💬 聊天</option>
+          <option value="highlight"${sec.type==='highlight'?' selected':''}>✨ 精華</option>
+          <option value="custom"${(!['song','chat','highlight'].includes(sec.type))?' selected':''}>📁 自訂</option>
+        </select>
+        <button class="btn btn-add-row">➕ 新增欄位</button>
+        <button class="btn btn-collapse">⤵︎ 收合</button>
+        <button class="btn btn-delete-section" style="margin-left:auto; background:#e53935; color:#fff;">🗑️ 刪除分區</button>
+      </div>
+      <div class="section-body"></div>
+    `;
+
+    const body = wrap.querySelector('.section-body');
+    const items = (sec.items && sec.items.length) ? sec.items : [{name:'',time:''},{name:'',time:''},{name:'',time:''}];
+    items.forEach(it => body.appendChild(makeSongRow(it.name, it.time)));
+
+    // 綁定事件
+    wrap.querySelector('.btn-add-row').onclick = () => {
+      body.appendChild(makeSongRow('', ''));
+      initSortables(); // 新增後重新掛拖曳
+      if (typeof saveAllDataV2 === 'function') saveAllDataV2();
+    };
+    wrap.querySelector('.btn-delete-section').onclick = () => {
+      if (confirm(`確定刪除分區「${wrap.querySelector('.section-title-input').value || '未命名'}」？`)) {
+        wrap.remove();
+        if (typeof saveAllDataV2 === 'function') saveAllDataV2();
       }
+    };
+    wrap.querySelector('.btn-collapse').onclick = (e) => {
+      const collapsed = body.style.display === 'none';
+      body.style.display = collapsed ? '' : 'none';
+      e.target.textContent = collapsed ? '⤵︎ 收合' : '⤴︎ 展開';
+    };
+    wrap.querySelector('.section-type-select').onchange = () => { if (typeof saveAllDataV2 === 'function') saveAllDataV2(); };
+    wrap.querySelector('.section-title-input').oninput = () => { if (typeof saveAllDataV2 === 'function') saveAllDataV2(); };
 
-      renderSheetTabs();
-      restoreSheetData(); // 這個 function 之後會改為讀取「目前分頁」的資料
-    }
+    return wrap;
+  }
 
-    /** =========== 分區版資料結構與工具 ===========
-    
-    timelineData:
-    {
-      startTime, endTime, duration, adjustArea,
-      sections: [
-        { id, name, type, color, items: [ { name, time } ] }
-      ]
-    }
-    
-    舊資料相容：
-    若沒有 sections，且有 songs，啟動時會包進一個預設分區。
-    ================================================ */
-    
-    const SECTION_COLORS = ["#3f51b5","#009688","#4caf50","#ff9800","#9c27b0","#03a9f4","#795548","#607d8b","#e91e63","#f44336"];
-    let sectionColorPtr = 0;
-    
-    function uid() {
-      return 's' + Math.random().toString(36).slice(2, 9);
-    }
-    
-    function nextColor() {
-      const c = SECTION_COLORS[sectionColorPtr % SECTION_COLORS.length];
-      sectionColorPtr++;
-      return c;
-    }
-    
-    /** 讀取（含相容） */
-    function loadDataV2() {
-      const raw = localStorage.getItem('timelineData');
-      if (!raw) return null;
-      try {
-        const data = JSON.parse(raw);
-    
-        // 相容：舊版只有 songs，包成一個預設分區
-        if (!data.sections) {
-          const items = Array.isArray(data.songs) ? data.songs.map(x => ({ name: x.name || '', time: x.time || '' })) : [];
-          data.sections = [{
-            id: uid(),
-            name: "🎵 唱歌",
-            type: "song",
-            color: nextColor(),
-            items
-          }];
-          delete data.songs;
-          // 立即回存新結構
-          localStorage.setItem('timelineData', JSON.stringify(data));
-        }
-        return data;
-      } catch (e) {
-        console.error('loadData error', e);
-        return null;
+  /* ========== 覆寫：makeSongRow（加 .btn 與欄位拖曳手把） ========== */
+  if (typeof makeSongRow === 'function') {
+    const __orig_makeSongRow = makeSongRow;
+  }
+  function makeSongRow(name = '', time = '') {
+    const row = document.createElement('div');
+    row.className = 'song-row';
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.style.marginBottom = '6px';
+    row.style.position = 'relative';
+    row.style.alignItems = 'center';
+
+    row.innerHTML = `
+      <span class="drag-handle-row" title="拖曳欄位" style="cursor:grab; user-select:none; font-size:18px; line-height:1;">⋮⋮</span>
+      <button class="btn btn-del-row">刪除</button>
+
+      <div style="position: relative; flex: 1;">
+        <input type="text" placeholder="歌名 / 片段說明" value="${name}"
+              oninput="if (typeof saveAllDataV2==='function') saveAllDataV2(); if (typeof showSuggestions==='function') showSuggestions(this);"
+              onblur="setTimeout(() => { const ul=this.nextElementSibling; if(ul) ul.classList.add('hidden'); }, 150)"
+              style="width:100%; height:44px; box-sizing:border-box; font-size:16px;">
+        <ul class="suggest-list hidden"></ul>
+      </div>
+
+      <div style="flex: 0 0 180px;">
+        <input type="text" placeholder="時間 (HH:MM:SS)" value="${time}"
+              oninput="if (typeof saveAllDataV2==='function') saveAllDataV2()"
+              style="width:100%; height:44px; box-sizing:border-box; font-size:16px;">
+      </div>
+
+      <button class="btn btn-now">現在時間</button>
+    `;
+
+    row.querySelector('.btn-del-row').onclick = () => {
+      const [n, t] = row.querySelectorAll('input');
+      const hasContent = (n.value.trim() || t.value.trim());
+      if (!hasContent || confirm('刪除此欄位會清除其中內容，確定要刪除嗎？')) {
+        row.remove();
+        if (typeof saveAllDataV2 === 'function') saveAllDataV2();
       }
-    }
-    
-    /** 儲存（直接用新結構） */
-    function saveAllDataV2() {
-      const base = getBaseFields();
-      const sections = readSectionsFromDOM();
-      const data = { ...base, sections };
-      localStorage.setItem('timelineData', JSON.stringify(data));
-    }
-    
-    function getBaseFields() {
-      return {
-        startTime: document.getElementById('startTime').value || '',
-        endTime: document.getElementById('endTime').value || '',
-        duration: document.getElementById('duration').value || '',
-        adjustArea: document.getElementById('adjustArea').value || ''
-      };
-    }
-    
-    function readSectionsFromDOM() {
-      const out = [];
-      document.querySelectorAll('.section-card').forEach(secEl => {
-        const sec = {
-          id: secEl.dataset.id,
-          name: secEl.querySelector('.section-title-input').value.trim() || '未命名分區',
-          type: secEl.dataset.type || 'custom',
-          color: secEl.dataset.color || '#3f51b5',
-          items: []
-        };
-        secEl.querySelectorAll('.song-row').forEach(row => {
-          const [nameInput, timeInput] = row.querySelectorAll('input');
-          sec.items.push({ name: nameInput.value, time: timeInput.value });
-        });
-        out.push(sec);
+    };
+    row.querySelector('.btn-now').onclick = () => {
+      const timeInput = row.querySelector('input[placeholder^="時間"]');
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2,'0');
+      const m = String(now.getMinutes()).padStart(2,'0');
+      const s = String(now.getSeconds()).padStart(2,'0');
+      timeInput.value = `${h}:${m}:${s}`;
+      if (typeof saveAllDataV2 === 'function') saveAllDataV2();
+    };
+
+    return row;
+  }
+
+  /* ========== 拖曳初始化（分區之間／欄位可跨分區拖移） ========== */
+  function initSortables() {
+    // 分區之間拖曳
+    const secList = document.getElementById('sectionsContainer');
+    if (secList && !secList._sortableInited) {
+      Sortable.create(secList, {
+        animation: 150,
+        handle: '.drag-handle-sec',
+        draggable: '.section-card',
+        onEnd: () => { if (typeof saveAllDataV2 === 'function') saveAllDataV2(); }
       });
-      return out;
+      secList._sortableInited = true;
     }
-    
-    /** =========== 分區 UI 產生 =========== */
-    
-    function renderAllSections(data) {
-      const container = document.getElementById('sectionsContainer');
-      container.innerHTML = '';
-      (data.sections || []).forEach(sec => {
-        container.appendChild(renderSectionCard(sec));
+
+    // 每個分區內的欄位可拖曳，且可跨分區移動
+    document.querySelectorAll('.section-body').forEach(body => {
+      if (body._sortableInited) return;
+      Sortable.create(body, {
+        group: 'timeline-items',      // 同組名即可跨容器拖移
+        animation: 150,
+        handle: '.drag-handle-row',
+        draggable: '.song-row',
+        ghostClass: 'drag-ghost',
+        onEnd: () => { if (typeof saveAllDataV2 === 'function') saveAllDataV2(); }
       });
-      // 沒有分區就放一個預設
-      if ((data.sections || []).length === 0) {
-        addSection('🎵 唱歌','song');
-      }
-    }
-    
-    function renderSectionCard(sec) {
-      const wrap = document.createElement('div');
-      wrap.className = 'section-card';
-      wrap.dataset.id = sec.id;
-      wrap.dataset.type = sec.type || 'custom';
-      wrap.dataset.color = sec.color || nextColor();
-      wrap.style.border = '1px solid #ccc';
-      wrap.style.borderLeft = `10px solid ${wrap.dataset.color}`;
-      wrap.style.borderRadius = '8px';
-      wrap.style.padding = '12px';
-      wrap.style.margin = '10px 0';
-      wrap.style.background = 'var(--card-bg, #f9f9f9)';
-    
-      wrap.innerHTML = `
-        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-          <input class="section-title-input" value="${sec.name || '未命名分區'}" 
-                 style="font-weight:700; font-size:16px; padding:6px 8px; border:1px solid #bbb; border-radius:6px; min-width:220px;">
-          <select class="section-type-select" style="padding:6px 8px; border:1px solid #bbb; border-radius:6px;">
-            <option value="song"${sec.type==='song'?' selected':''}>🎵 唱歌</option>
-            <option value="chat"${sec.type==='chat'?' selected':''}>💬 聊天</option>
-            <option value="highlight"${sec.type==='highlight'?' selected':''}>✨ 精華</option>
-            <option value="custom"${(!['song','chat','highlight'].includes(sec.type))?' selected':''}>📁 自訂</option>
-          </select>
-          <button class="btn-add-row">➕ 新增欄位</button>
-          <button class="btn-collapse">⤵︎ 收合</button>
-          <button class="btn-delete-section" style="margin-left:auto; background:#e53935; color:#fff;">🗑️ 刪除分區</button>
-        </div>
-        <div class="section-body"></div>
-      `;
-    
-      const body = wrap.querySelector('.section-body');
-    
-      // 塞進既有的 items；若沒有就先給 3 列空白
-      const items = (sec.items && sec.items.length) ? sec.items : [{name:'',time:''},{name:'',time:''},{name:'',time:''}];
-      items.forEach(it => body.appendChild(makeSongRow(it.name, it.time)));
-    
-      // 綁定事件
-      wrap.querySelector('.btn-add-row').onclick = () => {
-        body.appendChild(makeSongRow('', ''));
-        saveAllDataV2();
-      };
-      wrap.querySelector('.btn-delete-section').onclick = () => {
-        if (confirm(`確定刪除分區「${wrap.querySelector('.section-title-input').value || '未命名'}」？`)) {
-          wrap.remove();
-          saveAllDataV2();
-        }
-      };
-      wrap.querySelector('.btn-collapse').onclick = (e) => {
-        const collapsed = body.style.display === 'none';
-        body.style.display = collapsed ? '' : 'none';
-        e.target.textContent = collapsed ? '⤵︎ 收合' : '⤴︎ 展開';
-      };
-      wrap.querySelector('.section-type-select').onchange = (e) => {
-        wrap.dataset.type = e.target.value;
-        saveAllDataV2();
-      };
-      wrap.querySelector('.section-title-input').oninput = () => saveAllDataV2();
-    
-      return wrap;
-    }
-    
-    function makeSongRow(name = '', time = '') {
-      const row = document.createElement('div');
-      row.className = 'song-row';
-      row.style.display = 'flex';
-      row.style.gap = '8px';
-      row.style.marginBottom = '6px';
-      row.style.position = 'relative';
-    
-      row.innerHTML = `
-        <button class="btn-del-row">刪除</button>
-        <div style="position: relative; flex: 1;">
-          <input type="text" placeholder="歌名 / 片段說明" value="${name}"
-                 oninput="saveAllDataV2(); if (typeof showSuggestions==='function') showSuggestions(this);"
-                 onblur="setTimeout(() => { const ul=this.nextElementSibling; if(ul) ul.classList.add('hidden'); }, 150)"
-                 style="width:100%; height:44px; box-sizing:border-box; font-size:16px;">
-          <ul class="suggest-list hidden"></ul>
-        </div>
-    
-        <div style="flex: 0 0 180px;">
-          <input type="text" placeholder="時間 (HH:MM:SS)" value="${time}"
-                 oninput="saveAllDataV2()"
-                 style="width:100%; height:44px; box-sizing:border-box; font-size:16px;">
-        </div>
-    
-        <button class="btn-now">現在時間</button>
-      `;
-    
-      row.querySelector('.btn-del-row').onclick = () => {
-        // 若這列有內容就提醒
-        const [n, t] = row.querySelectorAll('input');
-        const hasContent = (n.value.trim() || t.value.trim());
-        if (!hasContent || confirm('刪除此欄位會清除其中內容，確定要刪除嗎？')) {
-          row.remove();
-          saveAllDataV2();
-        }
-      };
-      row.querySelector('.btn-now').onclick = () => {
-        const timeInput = row.querySelector('input[placeholder^="時間"]');
-        const now = new Date();
-        const h = String(now.getHours()).padStart(2,'0');
-        const m = String(now.getMinutes()).padStart(2,'0');
-        const s = String(now.getSeconds()).padStart(2,'0');
-        timeInput.value = `${h}:${m}:${s}`;
-        saveAllDataV2();
-      };
-    
-      return row;
-    }
-    
-    /** 新增分區（提供快速類型與預設名稱） */
-    function addSection(name = '', type = 'custom') {
-      const sec = {
-        id: uid(),
-        name: name || '新分區',
-        type,
-        color: nextColor(),
-        items: []
-      };
-      const card = renderSectionCard(sec);
-      document.getElementById('sectionsContainer').appendChild(card);
-      saveAllDataV2();
-    }
-    
-    /** =========== 還原與初始化 =========== */
-    
-    function restoreAllDataV2() {
-      const data = loadDataV2() || {
-        startTime: '', endTime: '', duration: '', adjustArea: '',
-        sections: [{ id: uid(), name: '🎵 唱歌', type: 'song', color: nextColor(), items: [] }]
-      };
-      // 基本欄位
-      document.getElementById('startTime').value = data.startTime || '';
-      document.getElementById('endTime').value = data.endTime || '';
-      document.getElementById('duration').value = data.duration || '';
-      document.getElementById('adjustArea').value = data.adjustArea || '';
-      autoResizeTextarea?.(document.getElementById('adjustArea'));
-      // 分區
-      renderAllSections(data);
-    }
-    
-    /** 綁定基本欄位即時儲存 */
-    ['startTime','endTime','duration'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('input', saveAllDataV2);
+      body._sortableInited = true;
     });
-    document.getElementById('adjustArea')?.addEventListener('input', () => {
-      autoResizeTextarea?.(document.getElementById('adjustArea'));
-      saveAllDataV2();
-    });
-    
-    /** =========== 輸出邏輯（含可選分區標題） =========== */
-    function generateTimeline() {
-      let startTime = document.getElementById("startTime").value.trim();
-      const endTime = document.getElementById("endTime").value.trim();
-      const duration = document.getElementById("duration").value.trim();
-      const showHeaders = document.getElementById('showSectionHeaders')?.checked;
-    
-      if (!startTime && endTime && duration) {
-        const endSec = toSeconds(endTime);
-        const durSec = toSeconds(duration);
-        let startSec = endSec - durSec;
-        if (startSec < 0) startSec += 86400;
-        startTime = formatSeconds(startSec);
-      }
-      if (!startTime) {
-        alert("請輸入開台時間或提供結束時間與時長。");
-        return;
-      }
-    
-      const startSec = toSeconds(startTime);
-      const sections = readSectionsFromDOM();
-    
-      // 拉平成項目清單，但保留其所屬分區名稱以便可選輸出 header
-      const flat = [];
-      sections.forEach(sec => {
-        // 先把分區標題當作虛擬項目（時間未知，等排序後再插入）
-        if (showHeaders && sec.items.some(it => it.name && it.time)) {
-          flat.push({ special: 'header', sectionName: sec.name });
-        }
-        sec.items.forEach(it => {
-          const name = (it.name || '').trim();
-          const absTime = (it.time || '').trim();
-          if (!name || !absTime) return;
-          let t = toSeconds(absTime) - startSec;
-          if (t < 0) t += 86400; // 跨日處理
-          flat.push({ time: t, text: `${formatSeconds(t)} ${name}`, sectionName: sec.name });
-        });
-      });
-    
-      // 先把 header 拔掉，僅對有時間的排序
-      const items = flat.filter(x => !x.special);
-      items.sort((a,b)=>a.time - b.time);
-    
-      // 如果要顯示分區標題：依序把各分區第一個出現的位置前加上 header
-      let outputLines = [];
-      if (showHeaders) {
-        let inserted = new Set();
-        items.forEach((it, idx) => {
-          if (!inserted.has(it.sectionName)) {
-            outputLines.push(`-- ${it.sectionName} --`);
-            inserted.add(it.sectionName);
-          }
-          outputLines.push(it.text);
-        });
-      } else {
-        outputLines = items.map(it => it.text);
-      }
-    
-      const outputEl = document.getElementById("output");
-      outputEl.value = outputLines.join("\n");
-      autoResizeTextarea?.(outputEl);
-      saveAllDataV2();
-    }
-    
-    /** 啟動 */
-    restoreAllDataV2();
+  }
+
+  /* ========== 在渲染/新增分區後自動掛上拖曳 ========== */
+  if (typeof renderAllSections === 'function') {
+    const _origRenderAllSections = renderAllSections;
+    renderAllSections = function(data) {
+      _origRenderAllSections.call(this, data);
+      initSortables();
+    };
+  }
+
+  if (typeof addSection === 'function') {
+    const _origAddSection = addSection;
+    addSection = function(name = '', type = 'custom') {
+      _origAddSection.call(this, name, type);
+      initSortables();
+    };
+  }
+
+  /* 若你的頁面載入時就會 restoreAllDataV2() → renderAllSections()，會自動掛拖曳。
+    若沒有，請在載入完成的地方手動呼叫一次：initSortables(); */
   </script>
 </body>
 </html>
