@@ -787,6 +787,7 @@
       list.classList.remove('hidden');
     }
   </script>
+
   <!-- SortableJS（拖曳套件） -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
 
@@ -957,5 +958,618 @@
   /* 若你的頁面載入時就會 restoreAllDataV2() → renderAllSections()，會自動掛拖曳。
     若沒有，請在載入完成的地方手動呼叫一次：initSortables(); */
   </script>
+  <script>
+    /* ========= 分區核心：資料結構 + UI + 輸出（與舊版共存，必要處才覆寫） ========= */
+    
+    /* 顏色輪替（左側彩色邊條） */
+    const SECTION_COLORS = ["#3f51b5","#009688","#4caf50","#ff9800","#9c27b0","#03a9f4","#795548","#607d8b","#e91e63","#f44336"];
+    let __secColorPtr = 0;
+    function __uid(){ return 's' + Math.random().toString(36).slice(2, 9); }
+    function __nextColor(){ const c = SECTION_COLORS[__secColorPtr % SECTION_COLORS.length]; __secColorPtr++; return c; }
+    
+    /* 讀/存（向下相容：若舊資料只有 songs，就包成一個預設分區） */
+    function loadDataV2(){
+      const raw = localStorage.getItem('timelineData');
+      if(!raw) return null;
+      try{
+        const data = JSON.parse(raw);
+        if(!data.sections){
+          const items = Array.isArray(data.songs)? data.songs.map(x=>({name:x.name||'', time:x.time||''})): [];
+          data.sections = [{ id: __uid(), name: "🎵 唱歌", type: "song", color: __nextColor(), items }];
+          delete data.songs;
+          localStorage.setItem('timelineData', JSON.stringify(data));
+        }
+        return data;
+      }catch(e){ console.error('loadDataV2 error', e); return null; }
+    }
+    
+    function getBaseFieldsV2(){
+      const byId = id=>document.getElementById(id);
+      return {
+        startTime: byId('startTime')?.value || '',
+        endTime: byId('endTime')?.value || '',
+        duration: byId('duration')?.value || '',
+        adjustArea: byId('adjustArea')?.value || ''
+      };
+    }
+    
+    function readSectionsFromDOM(){
+      const out = [];
+      document.querySelectorAll('.section-card').forEach(secEl=>{
+        const sec = {
+          id: secEl.dataset.id,
+          name: secEl.querySelector('.section-title-input').value.trim() || '未命名分區',
+          type: secEl.dataset.type || 'custom',
+          color: secEl.dataset.color || '#3f51b5',
+          items: []
+        };
+        secEl.querySelectorAll('.song-row').forEach(row=>{
+          const [nameInput, timeInput] = row.querySelectorAll('input');
+          sec.items.push({ name: nameInput.value, time: timeInput.value });
+        });
+        out.push(sec);
+      });
+      return out;
+    }
+    
+    function saveAllDataV2(){
+      const base = getBaseFieldsV2();
+      const sections = readSectionsFromDOM();
+      localStorage.setItem('timelineData', JSON.stringify({ ...base, sections }));
+    }
+    
+    /* ===== 分區 UI ===== */
+    function renderSectionCard(sec){
+      const wrap = document.createElement('div');
+      wrap.className = 'section-card';
+      wrap.dataset.id = sec.id;
+      wrap.dataset.type = sec.type || 'custom';
+      wrap.dataset.color = sec.color || __nextColor();
+      wrap.style.border = '1px solid var(--border)';
+      wrap.style.borderLeft = `10px solid ${wrap.dataset.color}`;
+      wrap.style.borderRadius = '8px';
+      wrap.style.padding = '12px';
+      wrap.style.margin = '10px 0';
+      wrap.style.background = 'var(--card)';
+    
+      wrap.innerHTML = `
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+          <span class="drag-handle-sec" title="拖曳分區" style="cursor:grab; user-select:none; font-size:18px; line-height:1;">≡</span>
+          <input class="section-title-input" value="${sec.name || '未命名分區'}"
+                 style="font-weight:700; font-size:16px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; min-width:220px;">
+          <select class="section-type-select" style="padding:6px 8px; border:1px solid var(--border); border-radius:6px;">
+            <option value="song"${sec.type==='song'?' selected':''}>🎵 唱歌</option>
+            <option value="chat"${sec.type==='chat'?' selected':''}>💬 聊天</option>
+            <option value="highlight"${sec.type==='highlight'?' selected':''}>✨ 有趣片段</option>
+            <option value="custom"${(!['song','chat','highlight'].includes(sec.type))?' selected':''}>📁 自訂</option>
+          </select>
+          <button class="btn btn-add-row">➕ 新增欄位</button>
+          <button class="btn btn-collapse">⤵︎ 收合</button>
+          <button class="btn btn-delete-section" style="margin-left:auto; background:#e53935; color:#fff;">🗑️ 刪除分區</button>
+        </div>
+        <div class="section-body"></div>
+      `;
+    
+      const body = wrap.querySelector('.section-body');
+      const items = (sec.items && sec.items.length)? sec.items : [{name:'',time:''},{name:'',time:''},{name:'',time:''}];
+      items.forEach(it=> body.appendChild(makeSongRowV2(it.name, it.time)));
+    
+      // 綁定事件
+      wrap.querySelector('.btn-add-row').onclick = ()=>{
+        body.appendChild(makeSongRowV2('', ''));
+        initSortables(); // 重新掛拖曳
+        saveAllDataV2();
+      };
+      wrap.querySelector('.btn-delete-section').onclick = ()=>{
+        if (confirm(`確定刪除分區「${wrap.querySelector('.section-title-input').value || '未命名'}」？`)){
+          wrap.remove();
+          saveAllDataV2();
+        }
+      };
+      wrap.querySelector('.btn-collapse').onclick = (e)=>{
+        const collapsed = body.style.display === 'none';
+        body.style.display = collapsed ? '' : 'none';
+        e.target.textContent = collapsed ? '⤵︎ 收合' : '⤴︎ 展開';
+      };
+      wrap.querySelector('.section-type-select').onchange = ()=> saveAllDataV2();
+      wrap.querySelector('.section-title-input').oninput = ()=> saveAllDataV2();
+    
+      return wrap;
+    }
+    
+    function makeSongRowV2(name='', time=''){
+      const row = document.createElement('div');
+      row.className = 'song-row';
+      row.style.display = 'flex';
+      row.style.gap = '8px';
+      row.style.marginBottom = '6px';
+      row.style.position = 'relative';
+      row.style.alignItems = 'center';
+    
+      row.innerHTML = `
+        <span class="drag-handle-row" title="拖曳欄位" style="cursor:grab; user-select:none; font-size:18px; line-height:1;">⋮⋮</span>
+        <button class="btn btn-del-row">刪除</button>
+    
+        <div style="position: relative; flex: 1;">
+          <input type="text" placeholder="歌名 / 片段說明" value="${name}"
+                 oninput="saveAllDataV2(); if (typeof showSuggestions==='function') showSuggestions(this);"
+                 onblur="setTimeout(()=>{ const ul=this.nextElementSibling; if(ul) ul.classList.add('hidden'); }, 150)"
+                 style="width:100%; height:44px; box-sizing:border-box; font-size:16px;">
+          <ul class="suggest-list hidden"></ul>
+        </div>
+    
+        <div style="flex: 0 0 180px;">
+          <input type="text" placeholder="時間 (HH:MM:SS)" value="${time}"
+                 oninput="saveAllDataV2()"
+                 style="width:100%; height:44px; box-sizing:border-box; font-size:16px;">
+        </div>
+    
+        <button class="btn btn-now">現在時間</button>
+      `;
+    
+      row.querySelector('.btn-del-row').onclick = ()=>{
+        const [n, t] = row.querySelectorAll('input');
+        const hasContent = (n.value.trim() || t.value.trim());
+        if (!hasContent || confirm('刪除此欄位會清除其中內容，確定要刪除嗎？')){
+          row.remove();
+          saveAllDataV2();
+        }
+      };
+      row.querySelector('.btn-now').onclick = ()=>{
+        const timeInput = row.querySelector('input[placeholder^="時間"]');
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2,'0');
+        const m = String(now.getMinutes()).padStart(2,'0');
+        const s = String(now.getSeconds()).padStart(2,'0');
+        timeInput.value = `${h}:${m}:${s}`;
+        saveAllDataV2();
+      };
+    
+      return row;
+    }
+    
+    /* 渲染所有分區（沒有就放預設一個） */
+    function renderAllSections(data){
+      const container = document.getElementById('sectionsContainer');
+      if (!container) return;
+      container.innerHTML = '';
+      (data.sections || []).forEach(sec=>{
+        container.appendChild(renderSectionCard(sec));
+      });
+      if ((data.sections || []).length === 0){
+        addSection('🎵 唱歌','song');
+      }
+    }
+    
+    /* 公開的新增分區函式（給按鈕 onclick 用） */
+    function addSection(name='', type='custom'){
+      const sec = { id: __uid(), name: name || '新分區', type, color: __nextColor(), items: [] };
+      const card = renderSectionCard(sec);
+      document.getElementById('sectionsContainer')?.appendChild(card);
+      initSortables();
+      saveAllDataV2();
+    }
+    
+    /* 啟動與基本欄位即時儲存 */
+    function restoreAllDataV2(){
+      const data = loadDataV2() || { startTime:'', endTime:'', duration:'', adjustArea:'', sections: [] };
+      // 回填基本欄位
+      const byId = id=>document.getElementById(id);
+      if (byId('startTime')) byId('startTime').value = data.startTime || '';
+      if (byId('endTime')) byId('endTime').value = data.endTime || '';
+      if (byId('duration')) byId('duration').value = data.duration || '';
+      if (byId('adjustArea')) { byId('adjustArea').value = data.adjustArea || ''; if (typeof autoResizeTextarea==='function') autoResizeTextarea(byId('adjustArea')); }
+      // 渲染分區
+      renderAllSections(data);
+      initSortables();
+    }
+    
+    /* 綁定基本欄位 */
+    ['startTime','endTime','duration'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', saveAllDataV2);
+    });
+    document.getElementById('adjustArea')?.addEventListener('input', ()=>{
+      if (typeof autoResizeTextarea==='function') autoResizeTextarea(document.getElementById('adjustArea'));
+      saveAllDataV2();
+    });
+    
+    /* 覆寫 generateTimeline：支援分區輸出（時間排序 + 可加分區標題） */
+    (function(){
+      const toSec = (t)=> {
+        if (typeof toSeconds === 'function') return toSeconds(t);
+        // 簡易備援
+        const [h,m,s] = t.split(':').map(x=>parseInt(x||'0',10));
+        return (h*3600+m*60+s) % 86400;
+      };
+      const fmt = (s)=>{
+        if (typeof formatSeconds === 'function') return formatSeconds(s);
+        const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+        const pad = n=>String(n).padStart(2,'0');
+        return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+      };
+    
+      const oldGen = typeof generateTimeline === 'function' ? generateTimeline : null;
+    
+      window.generateTimeline = function(){
+        let startTime = document.getElementById("startTime")?.value.trim() || '';
+        const endTime = document.getElementById("endTime")?.value.trim() || '';
+        const duration = document.getElementById("duration")?.value.trim() || '';
+        const showHeaders = document.getElementById('showSectionHeaders')?.checked;
+    
+        if (!startTime && endTime && duration){
+          const endSec = toSec(endTime);
+          const durSec = toSec(duration);
+          let startSec = endSec - durSec;
+          if (startSec < 0) startSec += 86400;
+          startTime = fmt(startSec);
+        }
+        if (!startTime){
+          alert("請輸入開台時間或提供結束時間與時長。");
+          return;
+        }
+    
+        const startSec = toSec(startTime);
+        const sections = readSectionsFromDOM();
+        if (!sections.length){
+          // 若尚未用分區，回落到舊版（保險）
+          if (oldGen) return oldGen();
+          alert('尚未新增任何分區或欄位');
+          return;
+        }
+    
+        const flat = [];
+        sections.forEach(sec=>{
+          const valid = sec.items.filter(it=> (it.name||'').trim() && (it.time||'').trim());
+          if (showHeaders && valid.length) flat.push({ special:'header', name: sec.name });
+          valid.forEach(it=>{
+            let t = toSec(it.time) - startSec;
+            if (t < 0) t += 86400;
+            flat.push({ time:t, text:`${fmt(t)} ${it.name}`, sec:sec.name });
+          });
+        });
+    
+        const items = flat.filter(x=>!x.special).sort((a,b)=>a.time-b.time);
+        let lines = [];
+        if (showHeaders){
+          const inserted = new Set();
+          items.forEach(it=>{
+            if (!inserted.has(it.sec)) { lines.push(`-- ${it.sec} --`); inserted.add(it.sec); }
+            lines.push(it.text);
+          });
+        }else{
+          lines = items.map(i=>i.text);
+        }
+    
+        const out = document.getElementById('output');
+        if (out){ out.value = lines.join('\n'); if (typeof autoResizeTextarea==='function') autoResizeTextarea(out); }
+        saveAllDataV2();
+      };
+    })();
+    
+    /* 首次啟動（不影響你原本 restoreAllData 流程） */
+    document.addEventListener('DOMContentLoaded', ()=>{
+      // 如果你原本會立即 render 舊版歌曲清單，不影響；分區渲染獨立進行
+      restoreAllDataV2();
+    });
+    </script>
+
+    <script>
+    /* =========================================================
+    * LTH 分區模組（整潔版）— 僅更新 generate()
+    * - 支援分區 + 跨分區拖曳 + 深/淺色 + 向下相容舊清單
+    * - 產出規則（更新後）：
+    *    1) 先輸出「分區外舊欄位」（不加分區標題），依時間排序
+    *    2) 再輸出「各分區」，分區順序照畫面、分區內依時間排序
+    * - 對外只曝露 addSection() / generateTimeline()
+    * ========================================================= */
+    (()=>{
+
+      /*** 小工具 ***/
+      const COLORS = ["#3f51b5","#009688","#4caf50","#ff9800","#9c27b0","#03a9f4","#795548","#607d8b","#e91e63","#f44336"];
+      let colorPtr = 0;
+      const uid = ()=>'s'+Math.random().toString(36).slice(2,9);
+      const nextColor = ()=>COLORS[colorPtr++ % COLORS.length];
+      const $ = sel=>document.querySelector(sel);
+      const $$ = sel=>document.querySelectorAll(sel);
+
+      // 時間解析：優先用你原本的 toSeconds / formatSeconds，否則用備援
+      const toSec = (t)=>{
+        if (typeof window.toSeconds==='function') return window.toSeconds(t);
+        if (!t) return 0;
+        const parts = t.split(':').map(n=>parseInt(n||'0',10));
+        if (parts.length===2) { // mm:ss
+          const [m,s]=parts; return ((m*60)+s)%86400;
+        }
+        const [h=0,m=0,s=0]=parts; return ((h*3600)+(m*60)+s)%86400;
+      };
+      const fmt = (s)=>{
+        if (typeof window.formatSeconds==='function') return window.formatSeconds(s);
+        s = ((s%86400)+86400)%86400;
+        const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60;
+        const pad=n=>String(n).padStart(2,'0');
+        return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+      };
+
+      /*** 資料讀寫（向下相容） ***/
+      const load = ()=>{
+        const raw = localStorage.getItem('timelineData');
+        if (!raw) return null;
+        try {
+          const data = JSON.parse(raw);
+          if (!data.sections) {
+            const items = Array.isArray(data.songs) ? data.songs.map(x=>({name:x.name||'', time:x.time||''})) : [];
+            data.sections = [{ id:uid(), name:"🎵 唱歌", type:"song", color:nextColor(), items }];
+            delete data.songs;
+            localStorage.setItem('timelineData', JSON.stringify(data));
+          }
+          return data;
+        } catch(e){ console.error(e); return null; }
+      };
+
+      const baseFields = ()=>({
+        startTime: $('#startTime')?.value || '',
+        endTime:   $('#endTime')?.value   || '',
+        duration:  $('#duration')?.value  || '',
+        adjustArea:$('#adjustArea')?.value|| ''
+      });
+
+      const readSectionsFromDOM = ()=>{
+        const out=[];
+        $$('.section-card').forEach(secEl=>{
+          const sec={
+            id:    secEl.dataset.id,
+            name:  secEl.querySelector('.section-title-input').value.trim() || '未命名分區',
+            type:  secEl.dataset.type || 'custom',
+            color: secEl.dataset.color || '#3f51b5',
+            items: []
+          };
+          secEl.querySelectorAll('.song-row').forEach(row=>{
+            const [nameInput, timeInput] = row.querySelectorAll('input');
+            sec.items.push({ name: (nameInput?.value||'').trim(), time: (timeInput?.value||'').trim() });
+          });
+          out.push(sec);
+        });
+        return out;
+      };
+
+      // 讀「分區外」舊清單（盡量兼容你舊 DOM 結構）
+      const readLegacyFromDOM = ()=>{
+        const rows = $$('#songList .song-row, .legacy-song-row, [data-legacy="song-row"]');
+        const items=[];
+        rows.forEach(row=>{
+          const inputs = row.querySelectorAll('input');
+          if (!inputs.length) return;
+          const name = inputs[0]?.value?.trim() || '';
+          const time = (inputs[1]?.value || '').trim();
+          if (name && time) items.push({ name, time });
+        });
+        return items;
+      };
+
+      const save = ()=>{
+        const data = { ...baseFields(), sections: readSectionsFromDOM() };
+        localStorage.setItem('timelineData', JSON.stringify(data));
+      };
+
+      /*** UI：渲染與行為 ***/
+      const makeRow = (name='', time='')=>{
+        const row = document.createElement('div');
+        row.className = 'song-row';
+        row.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;position:relative;align-items:center;';
+        row.innerHTML = `
+          <span class="drag-handle-row" title="拖曳欄位" style="cursor:grab;user-select:none;font-size:18px;line-height:1;">⋮⋮</span>
+          <button class="btn btn-del-row">刪除</button>
+
+          <div style="position:relative;flex:1;">
+            <input type="text" placeholder="歌名 / 片段說明" value="${name}"
+                  oninput="LTH._save(); if (typeof showSuggestions==='function') showSuggestions(this);"
+                  onblur="setTimeout(()=>{ const ul=this.nextElementSibling; if(ul) ul.classList.add('hidden'); },150)"
+                  style="width:100%;height:44px;box-sizing:border-box;font-size:16px;">
+            <ul class="suggest-list hidden"></ul>
+          </div>
+
+          <div style="flex:0 0 180px;">
+            <input type="text" placeholder="時間 (HH:MM:SS)" value="${time}"
+                  oninput="LTH._save()" style="width:100%;height:44px;box-sizing:border-box;font-size:16px;">
+          </div>
+
+          <button class="btn btn-now">現在時間</button>
+        `;
+        row.querySelector('.btn-del-row').onclick = ()=>{
+          const [n,t] = row.querySelectorAll('input');
+          const hasContent = (n?.value.trim() || t?.value.trim());
+          if (!hasContent || confirm('刪除此欄位會清除其中內容，確定要刪除嗎？')){
+            row.remove(); save();
+          }
+        };
+        row.querySelector('.btn-now').onclick = ()=>{
+          const timeInput = row.querySelector('input[placeholder^="時間"]');
+          const now = new Date();
+          const h=String(now.getHours()).padStart(2,'0');
+          const m=String(now.getMinutes()).padStart(2,'0');
+          const s=String(now.getSeconds()).padStart(2,'0');
+          timeInput.value = `${h}:${m}:${s}`; save();
+        };
+        return row;
+      };
+
+      const renderCard = (sec)=>{
+        const wrap = document.createElement('div');
+        wrap.className = 'section-card';
+        wrap.dataset.id = sec.id;
+        wrap.dataset.type = sec.type || 'custom';
+        wrap.dataset.color = sec.color || nextColor();
+        wrap.style.borderLeft = `10px solid ${wrap.dataset.color}`;
+
+        wrap.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+            <span class="drag-handle-sec" title="拖曳分區" style="cursor:grab;user-select:none;font-size:18px;line-height:1;">≡</span>
+            <input class="section-title-input" value="${sec.name || '未命名分區'}"
+                  style="font-weight:700;font-size:16px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;min-width:220px;">
+            <select class="section-type-select" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
+              <option value="song"${sec.type==='song'?' selected':''}>🎵 唱歌</option>
+              <option value="chat"${sec.type==='chat'?' selected':''}>💬 聊天</option>
+              <option value="highlight"${sec.type==='highlight'?' selected':''}>✨ 有趣片段</option>
+              <option value="custom"${(!['song','chat','highlight'].includes(sec.type))?' selected':''}>📁 自訂</option>
+            </select>
+            <button class="btn btn-add-row">➕ 新增欄位</button>
+            <button class="btn btn-collapse">⤵︎ 收合</button>
+            <button class="btn btn-delete-section" style="margin-left:auto;background:#e53935;color:#fff;">🗑️ 刪除分區</button>
+          </div>
+          <div class="section-body"></div>
+        `;
+        const body = wrap.querySelector('.section-body');
+        (sec.items?.length ? sec.items : [{},{},{}]).forEach(it=>{
+          body.appendChild(makeRow(it.name||'', it.time||''));
+        });
+
+        wrap.querySelector('.btn-add-row').onclick = ()=>{ body.appendChild(makeRow()); initSortables(); save(); };
+        wrap.querySelector('.btn-delete-section').onclick = ()=>{
+          if (confirm(`確定刪除分區「${wrap.querySelector('.section-title-input').value || '未命名'}」？`)){
+            wrap.remove(); save();
+          }
+        };
+        wrap.querySelector('.btn-collapse').onclick = (e)=>{
+          const collapsed = body.style.display==='none';
+          body.style.display = collapsed ? '' : 'none';
+          e.target.textContent = collapsed ? '⤵︎ 收合' : '⤴︎ 展開';
+        };
+        wrap.querySelector('.section-type-select').onchange = ()=>save();
+        wrap.querySelector('.section-title-input').oninput = ()=>save();
+
+        return wrap;
+      };
+
+      const renderAll = (data)=>{
+        const container = $('#sectionsContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        (data.sections || []).forEach(sec=> container.appendChild(renderCard(sec)));
+        if ((data.sections||[]).length===0){ LTH.addSection('🎵 唱歌','song'); }
+        initSortables();
+      };
+
+      /*** 拖曳初始化 ***/
+      const initSortables = ()=>{
+        const secList = $('#sectionsContainer');
+        if (secList && !secList._sortableInited){
+          Sortable.create(secList, {
+            animation:150, handle:'.drag-handle-sec', draggable:'.section-card',
+            onEnd: save
+          });
+          secList._sortableInited = true;
+        }
+        $$('.section-body').forEach(body=>{
+          if (body._sortableInited) return;
+          Sortable.create(body, {
+            group:'timeline-items', animation:150,
+            handle:'.drag-handle-row', draggable:'.song-row',
+            ghostClass:'drag-ghost',
+            onEnd: save
+          });
+          body._sortableInited = true;
+        });
+      };
+
+      /*** 產出規則（已更新：先舊欄位，再各分區） ***/
+      const generate = ()=>{
+        // 1) 基準起始時間
+        let start = $('#startTime')?.value.trim() || '';
+        const end = $('#endTime')?.value.trim() || '';
+        const dur = $('#duration')?.value.trim() || '';
+        const showHeaders = $('#showSectionHeaders')?.checked;
+
+        if (!start && end && dur){
+          const endSec=toSec(end), durSec=toSec(dur);
+          let startSec=endSec-durSec; if (startSec<0) startSec+=86400;
+          start = fmt(startSec);
+        }
+        if (!start){ alert('請輸入開台時間或提供結束時間與時長。'); return; }
+
+        const startSec = toSec(start);
+
+        // 2) 擷取資料
+        const legacy   = readLegacyFromDOM();   // 分區外舊欄位
+        const sections = readSectionsFromDOM(); // 畫面上各分區
+
+        const lines = [];
+
+        // 3a) 先輸出 legacy（不加分區標題）
+        if (legacy.length){
+          legacy
+            .filter(it => (it.name||'').trim() && (it.time||'').trim())
+            .map(it => {
+              let t = toSec(it.time) - startSec;
+              if (t < 0) t += 86400;
+              return { t, line: `${fmt(t)} ${it.name}` };
+            })
+            .sort((a,b)=>a.t-b.t)
+            .forEach(i => lines.push(i.line));
+          // 如需在 legacy 與分區之間空一行，解除下一行註解
+        if (sections.some(s => (s.items||[]).some(it => it.name && it.time))) lines.push('');
+        }
+
+        // 3b) 再輸出各分區（保留分區順序；分區內依時間）
+        sections.forEach(sec=>{
+          const items = (sec.items||[])
+            .filter(it => (it.name||'').trim() && (it.time||'').trim())
+            .map(it => {
+              let t = toSec(it.time) - startSec;
+              if (t < 0) t += 86400;
+              return { t, line: `${fmt(t)} ${it.name}` };
+            })
+            .sort((a,b)=>a.t-b.t);
+
+          if (!items.length) return;
+          if (showHeaders) lines.push(`-- ${sec.name} --`);
+          items.forEach(i => lines.push(i.line));
+        });
+
+        // 4) 寫回輸出框
+        const out = $('#output');
+        if (out){
+          out.value = lines.join('\n');
+          if (typeof window.autoResizeTextarea==='function') autoResizeTextarea(out);
+        }
+        save();
+      };
+
+      /*** 模組啟動 ***/
+      const restore = ()=>{
+        const data = load() || { startTime:'', endTime:'', duration:'', adjustArea:'', sections:[] };
+        if ($('#startTime')) $('#startTime').value = data.startTime || '';
+        if ($('#endTime'))   $('#endTime').value   = data.endTime   || '';
+        if ($('#duration'))  $('#duration').value  = data.duration  || '';
+        if ($('#adjustArea')){
+          $('#adjustArea').value = data.adjustArea || '';
+          if (typeof window.autoResizeTextarea==='function') autoResizeTextarea($('#adjustArea'));
+        }
+        renderAll(data);
+      };
+
+      // 基本欄位即時存
+      ['#startTime','#endTime','#duration'].forEach(sel=>{
+        const el = $(sel); if (el) el.addEventListener('input', save);
+      });
+      $('#adjustArea')?.addEventListener('input', ()=>{ if (typeof window.autoResizeTextarea==='function') autoResizeTextarea($('#adjustArea')); save(); });
+
+      // 對外公開 API（相容你 HTML 的 onclick）
+      window.LTH = {
+        addSection: (name='', type='custom')=>{
+          const card = renderCard({ id:uid(), name:name||'新分區', type, color:nextColor(), items:[] });
+          $('#sectionsContainer')?.appendChild(card);
+          initSortables(); save();
+        },
+        generateTimeline: generate,
+        _save: save
+      };
+      window.addSection = window.LTH.addSection;
+      window.generateTimeline = window.LTH.generateTimeline;
+
+      document.addEventListener('DOMContentLoaded', restore);
+
+    })(); // end IIFE
+    </script>
 </body>
 </html>
